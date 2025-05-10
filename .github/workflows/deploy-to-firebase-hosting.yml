@@ -1,0 +1,36 @@
+name: Deploy to Firebase Hosting
+
+on:
+  push:
+    branches:
+      - main # Or 'master', or whichever branch you want to trigger deployments
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4 # Using latest version
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.11.1' # Specify your Node.js version
+
+      - name: Install dependencies
+        run: npm ci # 'ci' is generally recommended for CI environments for faster, more reliable installs
+        # If you use yarn, use: yarn install --frozen-lockfile
+
+      - name: Build project
+        run: npm run build # Replace with your actual build command if different
+        # If your build needs environment variables (e.g., API keys for some services during build time),
+        # you might need to set them up as GitHub secrets and pass them here.
+        # For client-side Firebase config like in firebaseConfig.ts, it's usually bundled directly.
+
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: '${{ secrets.GITHUB_TOKEN }}' # Provided by GitHub
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_PANTRYPAL_BUDWM }}' # Securely store your service account key
+          projectId: pantrypal-budwm # Your Firebase project ID
+          channelId: live # Deploy to the live channel. You can also use preview channels.
