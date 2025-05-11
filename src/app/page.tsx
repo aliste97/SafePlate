@@ -8,7 +8,7 @@ import { useRouter } from 'next/navigation';
 
 const auth = getAuth(app);
 
-import SafePlateApp from '@/components/SafePlateApp';
+import SafePlateApp from '@/app/shopping-list/page';
 export default function HomePage() {
   const router = useRouter();
   const [user, loading] = useAuthState(auth);
