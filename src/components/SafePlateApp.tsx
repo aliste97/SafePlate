@@ -10,6 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { ShoppingBasket, PlusCircle, Trash2, Sparkles, Loader2, Lightbulb, X, Package } from 'lucide-react';
 import { useSignOut } from 'react-firebase-hooks/auth';
+import { useAuthState } from 'react-firebase-hooks/auth';
 import {
   collection,
   getDocs,
@@ -21,8 +22,6 @@ import {
   updateDoc
 } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebaseConfig'; // Firebase config
-
-const SHOPPING_ITEMS_COLLECTION = "shoppingItems"; // Updated collection name
 import { useRouter } from 'next/navigation';
 
 const SafePlateApp: React.FC = () => {
@@ -34,39 +33,47 @@ const SafePlateApp: React.FC = () => {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [signOut, loadingSignOut, errorSignOut] = useSignOut(auth);
+  const [user, loadingUser, errorUser] = useAuthState(auth); // Get the current user
   const router = useRouter();
 
   useEffect(() => {
-    if (!loadingSignOut && !auth.currentUser) {
+    if (!loadingSignOut && !loadingUser && !user) {
       // Redirect to login page if signed out
       router.push('/auth');
     }
     // Add error handling for signOut error if needed
-  }, [loadingSignOut, auth.currentUser, router]);
+     if (errorSignOut) {
+       console.error("Sign out error:", errorSignOut);
+       toast({ title: "Error", description: "Could not sign out.", variant: "destructive" });
+     }
+  }, [loadingSignOut, loadingUser, user, router, errorSignOut, toast]);
 
-
-  useEffect(() => {
-    const fetchShoppingItems = async () => {
-      setIsLoading(true);
-      try {
-        const itemsCollectionRef = collection(db, SHOPPING_ITEMS_COLLECTION);
-        const q = query(itemsCollectionRef, orderBy("name")); // Example: order by name
-        const querySnapshot = await getDocs(q);
-        const fetchedItems = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShoppingItem));
-        setItems(fetchedItems);
-        setMounted(true); // Set mounted after initial data load
-      } catch (error) {
-        console.error("Error fetching shopping items: ", error);
-        toast({ title: "Error", description: "Could not fetch shopping items.", variant: "destructive" })
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchShoppingItems();
-  }, [toast]);
+ useEffect(() => {
+  if (user) { // Only fetch if user is logged in
+      const fetchShoppingItems = async () => {
+        setIsLoading(true);
+        try {
+          const itemsCollectionRef = collection(db, 'users', user.uid, 'shoppingItems');
+          const q = query(itemsCollectionRef, orderBy("name")); // Example: order by name
+          const querySnapshot = await getDocs(q);
+          const fetchedItems = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShoppingItem));
+          setItems(fetchedItems);
+          setMounted(true); // Set mounted after initial data load
+        } catch (error) {
+          console.error("Error fetching shopping items: ", error);
+          toast({ title: "Error", description: "Could not fetch shopping items.", variant: "destructive" })
+        } finally {
+          setIsLoading(false);
+        }
+      };
+    
+      fetchShoppingItems();
+    }
+  }, [toast, user]); // Add user to dependencies
 
   const handleAddItem = async (e: React.FormEvent<HTMLFormElement>) => {
+    if (!user) return; // Ensure user is logged in
+
     e.preventDefault(); // Make sure this is the VERY FIRST line
 
     const quantity = parseInt(newItemQuantity, 10); // Define quantity here
@@ -81,7 +88,7 @@ const SafePlateApp: React.FC = () => {
     };
 
     try {
-      const docRef = await addDoc(collection(db, SHOPPING_ITEMS_COLLECTION), newItemData);
+      const docRef = await addDoc(collection(db, 'users', user.uid, 'shoppingItems'), newItemData);
       const newItemWithId: ShoppingItem = { id: docRef.id, ...newItemData };
       // Add to local state and sort
       setItems(prevItems => [...prevItems, newItemWithId].sort((a, b) => a.name.localeCompare(b.name)));
@@ -95,11 +102,12 @@ const SafePlateApp: React.FC = () => {
   };
 
   const handleTogglePurchased = async (id: string) => {
+    if (!user) return; // Ensure user is logged in
     const item = items.find(i => i.id === id);
     if (!item) return;
 
     const newPurchasedState = !item.purchased;
-    const itemRef = doc(db, SHOPPING_ITEMS_COLLECTION, id);
+    const itemRef = doc(db, 'users', user.uid, 'shoppingItems', id);
     try {
       await updateDoc(itemRef, { purchased: newPurchasedState });
       setItems(prevItems =>
@@ -114,10 +122,11 @@ const SafePlateApp: React.FC = () => {
   };
 
   const handleDeleteItem = async (id: string) => {
+    if (!user) return; // Ensure user is logged in
     const itemToDelete = items.find(item => item.id === id);
     if (!itemToDelete) return;
 
-    const itemRef = doc(db, SHOPPING_ITEMS_COLLECTION, id);
+    const itemRef = doc(db, 'users', user.uid, 'shoppingItems', id);
     try {
       await deleteDoc(itemRef);
       setItems(prevItems => prevItems.filter(item => item.id !== id));
@@ -129,6 +138,7 @@ const SafePlateApp: React.FC = () => {
   };
   
   const handleQuantityChange = async (id: string, change: number) => {
+    if (!user) return; // Ensure user is logged in
     const item = items.find(i => i.id === id);
     if (!item) return;
 
@@ -139,7 +149,7 @@ const SafePlateApp: React.FC = () => {
         }
         return;
     }
-    const itemRef = doc(db, SHOPPING_ITEMS_COLLECTION, id);
+    const itemRef = doc(db, 'users', user.uid, 'shoppingItems', id);
     try {
       await updateDoc(itemRef, { quantity: newQuantity });
       setItems(prevItems =>
