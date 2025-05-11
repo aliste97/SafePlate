@@ -9,6 +9,19 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { ShoppingBasket, PlusCircle, Trash2, Sparkles, Loader2, Lightbulb, X, Package } from 'lucide-react';
+import {
+  collection,
+  getDocs,
+  orderBy,
+  query,
+  addDoc,
+  deleteDoc,
+  doc,
+  updateDoc
+} from 'firebase/firestore';
+import { db } from '@/lib/firebaseConfig'; // Firebase config
+
+const SHOPPING_ITEMS_COLLECTION = "shoppingItems"; // Updated collection name
 
 const SafePlateApp: React.FC = () => {
   const [items, setItems] = useState<ShoppingItem[]>([]);
@@ -17,72 +30,114 @@ const SafePlateApp: React.FC = () => {
   const [mounted, setMounted] = useState(false);
 
   const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    setMounted(true);
-    try {
-      const storedItems = localStorage.getItem('safePlateItems');
-      if (storedItems) {
-        setItems(JSON.parse(storedItems));
+    const fetchShoppingItems = async () => {
+      setIsLoading(true);
+      try {
+        const itemsCollectionRef = collection(db, SHOPPING_ITEMS_COLLECTION);
+        const q = query(itemsCollectionRef, orderBy("name")); // Example: order by name
+        const querySnapshot = await getDocs(q);
+        const fetchedItems = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ShoppingItem));
+        setItems(fetchedItems);
+        setMounted(true); // Set mounted after initial data load
+      } catch (error) {
+        console.error("Error fetching shopping items: ", error);
+        toast({ title: "Error", description: "Could not fetch shopping items.", variant: "destructive" })
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      console.error("Failed to load items from localStorage", error);
-      toast({ title: "Error", description: "Could not load saved items.", variant: "destructive" });
-    }
+    };
+
+    fetchShoppingItems();
   }, [toast]);
 
-  useEffect(() => {
-    if (mounted) {
-      try {
-        localStorage.setItem('safePlateItems', JSON.stringify(items));
-      } catch (error) {
-        console.error("Failed to save items to localStorage", error);
-        toast({ title: "Error", description: "Could not save items.", variant: "destructive" });
-      }
-    }
-  }, [items, mounted, toast]);
+  const handleAddItem = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault(); // Make sure this is the VERY FIRST line
 
-  const handleAddItem = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const quantity = parseInt(newItemQuantity, 10);
-    if (newItemName.trim() && quantity > 0) {
-      const newItem: ShoppingItem = {
-        id: crypto.randomUUID(),
-        name: newItemName.trim(),
-        quantity,
-        purchased: false,
-      };
-      setItems(prevItems => [newItem, ...prevItems]);
+    const quantity = parseInt(newItemQuantity, 10); // Define quantity here
+    if (!newItemName.trim() || quantity <= 0) {
+      toast({ title: "Invalid Input", description: "Please enter a valid item name and quantity.", variant: "destructive" });
+      return;
+    }
+    const newItemData = { // Data without ID for Firestore
+      name: newItemName.trim(),
+      quantity,
+      purchased: false,
+    };
+
+    try {
+      const docRef = await addDoc(collection(db, SHOPPING_ITEMS_COLLECTION), newItemData);
+      const newItemWithId: ShoppingItem = { id: docRef.id, ...newItemData };
+      // Add to local state and sort
+      setItems(prevItems => [...prevItems, newItemWithId].sort((a, b) => a.name.localeCompare(b.name)));
       setNewItemName('');
       setNewItemQuantity('1');
-      toast({ title: "Item Added", description: `${newItem.name} added to your list.` });
-    } else {
-      toast({ title: "Invalid Input", description: "Please enter a valid item name and quantity.", variant: "destructive" });
+      toast({ title: "Item Added", description: `${newItemData.name} added to your list.` });
+    } catch (error) {
+      console.error("[SafePlateApp] Error adding item to Firestore: ", error);
+      toast({ title: "Error", description: "Could not add item.", variant: "destructive" });
     }
   };
 
-  const handleTogglePurchased = (id: string) => {
-    setItems(prevItems =>
-      prevItems.map(item =>
-        item.id === id ? { ...item, purchased: !item.purchased } : item
-      )
-    );
+  const handleTogglePurchased = async (id: string) => {
+    const item = items.find(i => i.id === id);
+    if (!item) return;
+
+    const newPurchasedState = !item.purchased;
+    const itemRef = doc(db, SHOPPING_ITEMS_COLLECTION, id);
+    try {
+      await updateDoc(itemRef, { purchased: newPurchasedState });
+      setItems(prevItems =>
+        prevItems.map(i =>
+          i.id === id ? { ...i, purchased: newPurchasedState } : i
+        )
+      );
+    } catch (error) {
+      console.error("Error updating item purchased state: ", error);
+      toast({ title: "Error", description: "Could not update item status.", variant: "destructive" });
+    }
   };
 
-  const handleDeleteItem = (id: string) => {
+  const handleDeleteItem = async (id: string) => {
     const itemToDelete = items.find(item => item.id === id);
-    setItems(prevItems => prevItems.filter(item => item.id !== id));
-    if (itemToDelete) {
+    if (!itemToDelete) return;
+
+    const itemRef = doc(db, SHOPPING_ITEMS_COLLECTION, id);
+    try {
+      await deleteDoc(itemRef);
+      setItems(prevItems => prevItems.filter(item => item.id !== id));
       toast({ title: "Item Removed", description: `${itemToDelete.name} removed from your list.`, variant: "destructive" });
+    } catch (error) {
+      console.error("Error deleting item: ", error);
+      toast({ title: "Error", description: "Could not delete item.", variant: "destructive" });
     }
   };
   
-  const handleQuantityChange = (id: string, change: number) => {
-    setItems(prevItems =>
-      prevItems.map(item =>
-        item.id === id ? { ...item, quantity: Math.max(1, item.quantity + change) } : item
-      )
-    );
+  const handleQuantityChange = async (id: string, change: number) => {
+    const item = items.find(i => i.id === id);
+    if (!item) return;
+
+    const newQuantity = Math.max(1, item.quantity + change);
+     if (newQuantity === item.quantity && change !== 0) { // Avoid update if quantity is already 1 and trying to decrease
+        if (newQuantity === 1 && change < 0) {
+             toast({ title: "Info", description: "Quantity cannot be less than 1.", variant: "default" });
+        }
+        return;
+    }
+    const itemRef = doc(db, SHOPPING_ITEMS_COLLECTION, id);
+    try {
+      await updateDoc(itemRef, { quantity: newQuantity });
+      setItems(prevItems =>
+        prevItems.map(i =>
+          i.id === id ? { ...i, quantity: newQuantity } : i
+        )
+      );
+    } catch (error) {
+      console.error("Error updating item quantity: ", error);
+      toast({ title: "Error", description: "Could not update item quantity.", variant: "destructive" });
+    }
   };
 
   if (!mounted) {
