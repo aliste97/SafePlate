@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { ShoppingBasket, PlusCircle, Trash2, Sparkles, Loader2, Lightbulb, X, Package } from 'lucide-react';
+import { useSignOut } from 'react-firebase-hooks/auth';
 import {
   collection,
   getDocs,
@@ -19,9 +20,10 @@ import {
   doc,
   updateDoc
 } from 'firebase/firestore';
-import { db } from '@/lib/firebaseConfig'; // Firebase config
+import { auth, db } from '@/lib/firebaseConfig'; // Firebase config
 
 const SHOPPING_ITEMS_COLLECTION = "shoppingItems"; // Updated collection name
+import { useRouter } from 'next/navigation';
 
 const SafePlateApp: React.FC = () => {
   const [items, setItems] = useState<ShoppingItem[]>([]);
@@ -31,6 +33,17 @@ const SafePlateApp: React.FC = () => {
 
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
+  const [signOut, loadingSignOut, errorSignOut] = useSignOut(auth);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loadingSignOut && !auth.currentUser) {
+      // Redirect to login page if signed out
+      router.push('/auth');
+    }
+    // Add error handling for signOut error if needed
+  }, [loadingSignOut, auth.currentUser, router]);
+
 
   useEffect(() => {
     const fetchShoppingItems = async () => {
@@ -150,9 +163,15 @@ const SafePlateApp: React.FC = () => {
 
   return (
     <div className="container mx-auto p-4 max-w-2xl">
-      <header className="flex items-center justify-center mb-8 text-primary">
-        <ShoppingBasket size={48} className="mr-3" />
-        <h1 className="text-4xl font-bold">SafePlate</h1>
+      <header className="flex flex-col items-center justify-center mb-8 text-primary">
+        <div className="flex items-center justify-between w-full max-w-2xl mb-4">
+          {/* Assuming you want the logo/icon and title on the left and logout on the right */}
+          <ShoppingBasket size={48} className="mr-3" />
+          <h1 className="text-4xl font-bold">SafePlate</h1>
+          <Button onClick={() => signOut()} disabled={loadingSignOut} variant="destructive">
+            Logout
+          </Button>
+        </div>
       </header>
 
       <Card className="mb-6 shadow-lg">
