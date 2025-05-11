@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
 import { app } from '@/lib/firebaseConfig'; // Firebase config
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/ca
 
 const auth = getAuth(app);
 
+const googleProvider = new GoogleAuthProvider();
 const AuthPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,6 +32,39 @@ const AuthPage: React.FC = () => {
       setError(err.message);
     }
   };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      setError(null); // Clear previous errors
+      const result = await signInWithPopup(auth, googleProvider);
+      // Signed in successfully with Google
+      console.log('Google Sign-In successful:', result.user);
+      router.push('/'); // Redirect to home page on success
+    } catch (err: any) {
+      if (err.code === 'auth/popup-blocked') {
+        // If popup is blocked, try redirect flow
+        signInWithRedirect(auth, googleProvider);
+      } else {
+        setError(err.message);
+      }
+    }
+  };
+
+  // Effect to handle redirect result
+  useEffect(() => {
+    const handleRedirectResult = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result) {
+          // User signed in via redirect
+          console.log('Google Sign-In (Redirect) successful:', result.user);
+          router.push('/'); // Redirect to home page on success
+        }
+      } catch (error: any) {
+        setError(error.message);
+      }
+    }
+  });
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-100">
@@ -73,6 +107,12 @@ const AuthPage: React.FC = () => {
               onClick={() => setIsLoginMode(!isLoginMode)}
             >
               Switch to {isLoginMode ? 'Sign Up' : 'Sign In'}
+            </Button>
+            <Button
+              variant="outline"
+                          className="w-full"
+            onClick={handleGoogleSignIn}>
+                          Sign in with Google
             </Button>
           </div>
         </CardContent>
